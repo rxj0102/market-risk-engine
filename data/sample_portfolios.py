@@ -57,7 +57,7 @@ CRISIS_WINDOWS: list[tuple[str, str, float, float]] = [
     ("2015-08-17", "2015-09-30", 2.2, -0.0030),  # China devaluation
     ("2018-10-01", "2018-12-24", 1.9, -0.0022),  # Q4 2018 selloff
     ("2020-02-19", "2020-03-23", 3.5, -0.0070),  # COVID crash
-    ("2020-03-24", "2020-06-30", 1.8, 0.0030),   # COVID recovery
+    ("2020-03-24", "2020-06-30", 1.6, 0.0012),   # COVID recovery
     ("2022-01-03", "2022-10-12", 1.6, -0.0016),  # 2022 rate-hike bear
 ]
 
@@ -106,6 +106,13 @@ def _simulate(spec: list[tuple[str, float, float, float]], seed: int) -> pd.Data
     df_t = 5.0  # Student-t degrees of freedom -> heavy tails
     market = rng.standard_t(df_t, size=n_days) / np.sqrt(df_t / (df_t - 2))
     idio = rng.standard_t(df_t, size=(n_days, n_assets)) / np.sqrt(df_t / (df_t - 2))
+
+    # Asymmetric downward jumps in the common factor -> realistic negative skew
+    # and crash risk (rare, large, one-sided moves shared across risk assets).
+    jump_prob = 0.012
+    jump_indicator = rng.random(n_days) < jump_prob
+    jump_size = -np.abs(rng.standard_normal(n_days)) * 3.0  # negative jumps only
+    market = market + jump_indicator * jump_size
 
     # Build returns: drift + beta * market shock + idiosyncratic, scaled by SV & crises.
     daily_vol = sigma[None, :] * sv * vol_mult[:, None]
