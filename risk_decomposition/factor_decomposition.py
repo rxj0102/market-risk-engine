@@ -257,8 +257,9 @@ class FactorRiskDecomposition:
         residuals = asset_mat - fitted
         sigma_eps2 = residuals.var(axis=0, ddof=0)
 
-        beta_p = w @ betas  # (n_factors,)
-        cov_factors = np.cov(factor_mat, rowvar=False)
+        beta_p = np.atleast_1d(w @ betas)  # (n_factors,)
+        # np.cov collapses to a 0-d scalar for a single factor; keep it 2-D.
+        cov_factors = np.atleast_2d(np.cov(factor_mat, rowvar=False))
         var_systematic = float(beta_p @ cov_factors @ beta_p)
         var_idio = float(np.sum(w**2 * sigma_eps2))
 
