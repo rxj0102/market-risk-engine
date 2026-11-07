@@ -1,5 +1,7 @@
 # Market Risk Engine
 
+[![CI](https://github.com/rxj0102/market-risk-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/rxj0102/market-risk-engine/actions/workflows/ci.yml)
+
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-35%20passing-brightgreen.svg)](tests/)
