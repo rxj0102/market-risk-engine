@@ -38,23 +38,29 @@ class BaselTrafficLight:
             return 1.0
         return self.PLUS_FACTORS[n_exceptions]
 
-    def classify(self, n_exceptions: int, n_days: int = 250) -> tuple[str, float]:
+    def classify(
+        self, n_exceptions: int, n_days: int = 250, confidence: float = 0.99
+    ) -> tuple[str, float]:
         """Classify the backtest into a zone and capital multiplier.
 
-        Thresholds are scaled when ``n_days != 250`` to keep the expected-rate
-        interpretation consistent.
+        The Basel zones are defined on the cumulative binomial probability of
+        the exception count: green below 95%, red from 99.99%, yellow in
+        between.  For 250 days at 99% this reproduces the published 0-4 / 5-9
+        / 10+ table exactly; other window lengths use the same probability
+        cut-offs instead of scaling the 250-day counts.  Yellow-zone plus
+        factors come from the published table at the 250-day-equivalent
+        exception count.
         """
-        scale = n_days / 250.0
-        green_max = 4 * scale
-        yellow_max = 9 * scale
-        multiplier = BASE_CAPITAL_MULTIPLIER + self.capital_add_on(
-            int(round(n_exceptions / scale)) if scale else n_exceptions
-        )
-        if n_exceptions <= green_max:
+        if n_days <= 0:
             return "green", BASE_CAPITAL_MULTIPLIER
-        if n_exceptions <= yellow_max:
-            return "yellow", multiplier
-        return "red", BASE_CAPITAL_MULTIPLIER + 1.0
+        cdf = float(stats.binom.cdf(n_exceptions, n_days, 1.0 - confidence))
+        if cdf < 0.95:
+            return "green", BASE_CAPITAL_MULTIPLIER
+        if cdf >= 0.9999:
+            return "red", BASE_CAPITAL_MULTIPLIER + 1.0
+        equivalent = int(round(n_exceptions * 250.0 / n_days))
+        equivalent = min(max(equivalent, 5), 9)
+        return "yellow", BASE_CAPITAL_MULTIPLIER + self.PLUS_FACTORS[equivalent]
 
     def backtest_report(
         self, var_series: pd.Series, pnl_series: pd.Series, confidence: float = 0.99
@@ -65,7 +71,7 @@ class BaselTrafficLight:
         mask = pnl < -var
         n_exc = int(mask.sum())
         T = len(pnl)
-        zone, mult = self.classify(n_exc, T)
+        zone, mult = self.classify(n_exc, T, confidence)
         return {
             "exceptions": n_exc,
             "days_tested": T,
@@ -73,5 +79,5 @@ class BaselTrafficLight:
             "exception_rate": n_exc / T if T else float("nan"),
             "traffic_light": zone,
             "capital_multiplier": mult,
-            "capital_add_on": self.capital_add_on(n_exc),
+            "capital_add_on": mult - BASE_CAPITAL_MULTIPLIER,
         }

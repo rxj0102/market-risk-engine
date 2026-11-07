@@ -60,3 +60,30 @@ def test_christoffersen_detects_clustering():
     e[10:30] = 1
     stat, pval, trans = ChristoffersenTest().independence_test(pd.Series(e))
     assert pval < 0.05
+
+
+def test_traffic_light_reproduces_basel_table_for_250_days():
+    tl = BaselTrafficLight()
+    for n in range(0, 5):
+        assert tl.classify(n, 250) == ("green", 3.0)
+    expected = {5: 3.40, 6: 3.50, 7: 3.65, 8: 3.75, 9: 3.85}
+    for n, mult in expected.items():
+        zone, m = tl.classify(n, 250)
+        assert zone == "yellow" and m == pytest.approx(mult)
+    for n in (10, 11, 20):
+        assert tl.classify(n, 250) == ("red", 4.0)
+
+
+def test_traffic_light_report_is_consistent_for_other_windows():
+    tl = BaselTrafficLight()
+    rng = np.random.default_rng(0)
+    for T in (125, 500, 1000):
+        for n_exc in (0, 3, 6, 12, 25):
+            pnl = np.zeros(T)
+            pnl[:n_exc] = -2.0
+            rep = tl.backtest_report(pd.Series(np.ones(T)), pd.Series(pnl))
+            assert rep["capital_multiplier"] == pytest.approx(3.0 + rep["capital_add_on"])
+            if rep["traffic_light"] == "green":
+                assert rep["capital_add_on"] == 0.0
+            if rep["traffic_light"] == "red":
+                assert rep["capital_add_on"] == 1.0

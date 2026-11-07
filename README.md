@@ -149,3 +149,8 @@ before any production or regulatory use.
 ## License
 
 [MIT](LICENSE)
+
+## Testing and Basel zones
+
+- CI runs `pytest` on every push and pull request.
+- The Basel traffic-light zones are now computed from the cumulative binomial probability of the exception count (green below 95%, red from 99.99%), which reproduces the published 0-4 / 5-9 / 10+ table exactly for 250 days at 99%. Previously other window lengths scaled the 250-day counts, and `backtest_report` reported a plus-factor from the unscaled count, which could disagree with the zone and multiplier it returned for the same backtest.
