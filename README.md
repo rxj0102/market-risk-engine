@@ -4,10 +4,9 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-35%20passing-brightgreen.svg)](tests/)
 [![Streamlit](https://img.shields.io/badge/streamlit-dashboard-FF4B4B.svg)](app.py)
 
-> An institutional-grade market-risk platform: **Historical, Parametric, and Monte Carlo VaR** with **Expected Shortfall**, **Basel III/IV backtesting**, **stress testing**, **risk decomposition**, and **economic-capital allocation** — packaged as a Python library, a nine-tab Streamlit dashboard, and an SSRN-ready research paper.
+> A market-risk platform: **Historical, Parametric, and Monte Carlo VaR** with **Expected Shortfall**, **Basel III/IV backtesting**, **stress testing**, **risk decomposition**, and **economic-capital allocation** — packaged as a Python library, a nine-tab Streamlit dashboard, and an SSRN-ready research paper.
 
 ---
 
