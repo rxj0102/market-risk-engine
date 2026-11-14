@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Streamlit](https://img.shields.io/badge/streamlit-dashboard-FF4B4B.svg)](app.py)
 
-> A market-risk platform: **Historical, Parametric, and Monte Carlo VaR** with **Expected Shortfall**, **Basel III/IV backtesting**, **stress testing**, **risk decomposition**, and **economic-capital allocation** — packaged as a Python library, a nine-tab Streamlit dashboard, and an SSRN-ready research paper.
+> A market-risk platform: **Historical, Parametric, and Monte Carlo VaR** with **Expected Shortfall**, **Basel III/IV backtesting**, **stress testing**, **risk decomposition**, and **economic-capital allocation**; packaged as a Python library, a nine-tab Streamlit dashboard, and an SSRN-ready research paper.
 
 ---
 
@@ -117,7 +117,7 @@ engine.
 - **Basel traffic light** (250-day, 99%): green 0–4 (×3.00), yellow 5–9
   (×3.40–3.85), red 10+ (×4.00).
 
-See **Tab 9 — Documentation** in the dashboard and `paper/` for the full
+See **Tab 9: Documentation** in the dashboard and `paper/` for the full
 mathematical treatment and references (Kupiec 1995, Christoffersen 1998,
 Hull–White 1998, Engle 2002, Acerbi–Tasche 2002, BCBS FRTB 2019).
 
@@ -128,11 +128,11 @@ Hull–White 1998, Engle 2002, Acerbi–Tasche 2002, BCBS FRTB 2019).
 Two deterministic, synthetically-generated panels ship with the repo (see
 [`data/README_data.md`](data/README_data.md)):
 
-- **`sample_equity_portfolio.csv`** — 10 ETFs (SPY, QQQ, IWM, GLD, TLT, HYG,
+- **`sample_equity_portfolio.csv`**: 10 ETFs (SPY, QQQ, IWM, GLD, TLT, HYG,
   EEM, USO, VNQ, XLF), business-daily 2015–2024, with embedded crisis windows
   (2015 China devaluation, 2018 Q4, 2020 COVID, 2022 bear) and fat-tailed,
   jump-driven returns.
-- **`sample_fx_portfolio.csv`** — 5 currency pairs (EURUSD, GBPUSD, USDJPY,
+- **`sample_fx_portfolio.csv`**: 5 currency pairs (EURUSD, GBPUSD, USDJPY,
   AUDUSD, USDMXN).
 
 > The sample data is **simulated for demonstration** and is not real market
@@ -140,6 +140,33 @@ Two deterministic, synthetically-generated panels ship with the repo (see
 > live portfolio.
 
 ---
+
+## Reproducibility
+
+### Data availability
+
+Inputs ship in the `data/` folder of this repository. No external downloads are needed.
+
+### Computational requirements
+
+- Python 3.12.3. Every dependency version is pinned in `requirements.lock` (compiled from `requirements.txt` with uv).
+- Checked on Linux x86_64 with 2 CPU cores and 8 GB RAM. No GPU is needed.
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.lock   # exact pinned environment
+pip install -e . --no-deps         # this package
+pytest -q                          # runs the test suite
+```
+
+### Runtime
+
+The test suite (37 tests) finishes in about 9 seconds on the machine above, including any data downloads it triggers.
+
+### Citation
+
+Citation metadata is in `CITATION.cff`. GitHub turns it into a Cite this repository button on the repo page.
+
 
 ## Disclaimer
 
