@@ -141,6 +141,33 @@ Two deterministic, synthetically-generated panels ship with the repo (see
 
 ---
 
+## Reproducibility
+
+### Data availability
+
+Inputs ship in the `data/` folder of this repository. No external downloads are needed.
+
+### Computational requirements
+
+- Python 3.12.3. Every dependency version is pinned in `requirements.lock` (compiled from `requirements.txt` with uv).
+- Checked on Linux x86_64 with 2 CPU cores and 8 GB RAM. No GPU is needed.
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.lock   # exact pinned environment
+pip install -e . --no-deps         # this package
+pytest -q                          # runs the test suite
+```
+
+### Runtime
+
+The test suite (37 tests) finishes in about 9 seconds on the machine above, including any data downloads it triggers.
+
+### Citation
+
+Citation metadata is in `CITATION.cff`. GitHub turns it into a Cite this repository button on the repo page.
+
+
 ## Disclaimer
 
 This project is for **research and educational purposes**. It is not
