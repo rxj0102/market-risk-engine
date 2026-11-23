@@ -2,15 +2,22 @@
 
 Two regimes are implemented:
 
-* **Basel III** Internal Models Approach (IMA), VaR-based. The market-risk
-  capital charge (MRC) combines current VaR, an average of the last 60 days'
-  VaR scaled by the supervisory multiplier ``mc``, and a stressed-VaR (SVaR)
-  add-on::
+* **Basel 2.5 / III** Internal Models Approach (IMA), VaR-based, on a 10-day
+  99% VaR (one-day VaR scaled by sqrt(10), as the rules allow)::
 
-      MRC = max(VaR_t, mc * avg(VaR_{t-59..t})) + SVaR
+      MRC = max(VaR_{t-1}, mc * avg(VaR, last 60 days))
+          + max(sVaR_{t-1}, ms * avg(sVaR, last 60 days))
 
-* **Basel IV / FRTB** IMA, Expected-Shortfall-based at 97.5% with
-  liquidity-horizon scaling across risk classes.
+  mc = ms = 3 plus the traffic-light add-on. Here sVaR is a single stressed
+  estimate, so its second term is ms * sVaR.
+
+* **FRTB** IMA, Expected Shortfall at 97.5% on a 10-day base horizon, with the
+  liquidity-horizon cascade of MAR33.4::
+
+      ES = sqrt( sum_j ( ES_T(P, j) * sqrt((LH_j - LH_{j-1}) / T) )^2 )
+
+  where T = 10, LH_j runs over 10, 20, 40, 60, 120 days and ES_T(P, j) is the
+  10-day ES of the positions whose liquidity horizon is at least LH_j.
 
 References
 ----------
@@ -22,6 +29,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 from core import BASE_CAPITAL_MULTIPLIER, FRTB_CONFIDENCE, TRADING_DAYS, Portfolio
 from backtesting import BaselTrafficLight
@@ -55,7 +63,13 @@ ASSET_LIQUIDITY_HORIZON: dict[str, int] = {
 }
 
 LH_BASE: int = 10
-"""Base liquidity horizon (days) used as the FRTB scaling denominator."""
+"""Base liquidity horizon T (days) of the FRTB ES."""
+
+LH_BUCKETS: tuple[int, ...] = (10, 20, 40, 60, 120)
+"""FRTB liquidity-horizon buckets (MAR33.12)."""
+
+BASEL_HORIZON: int = 10
+"""Holding period (days) of the Basel 2.5 / III IMA VaR."""
 
 SVAR_WINDOW: int = 250
 """Length (trading days) of the stressed-VaR look-back window."""
@@ -96,7 +110,9 @@ class BaselCapitalEngine:
         """
         port_ret = portfolio.return_series()
         z = z_score(confidence)
-        rolling_vol = port_ret.rolling(window=window, min_periods=window).std(ddof=1)
+        # shift(1): the VaR for day t uses returns up to t - 1 only, so the
+        # traffic-light backtest compares it with a P&L it has not seen.
+        rolling_vol = port_ret.rolling(window=window, min_periods=window).std(ddof=1).shift(1)
         var = z * rolling_vol * portfolio.notional
         return var.dropna()
 
@@ -125,23 +141,24 @@ class BaselCapitalEngine:
         var_series: pd.Series | None = None,
         confidence: float = 0.99,
     ) -> dict:
-        """Basel III IMA market-risk capital charge.
+        """Basel 2.5 / III IMA market-risk capital charge.
 
-        ``MRC = max(VaR_t, mc * avg(VaR_last60)) + SVaR``.
+        ``MRC = max(VaR_{t-1}, mc * avg60(VaR)) + max(sVaR, ms * sVaR)`` on a
+        10-day horizon, with one-day figures scaled by sqrt(10).
 
         Parameters
         ----------
         portfolio : Portfolio
         var_series : pd.Series, optional
-            Historical one-day VaR series (positive losses). If ``None``, a
-            60-day rolling parametric VaR is derived internally.
+            Historical one-day VaR forecasts (positive losses), each made before its
+            date. If ``None``, a 60-day rolling parametric VaR is derived internally.
         confidence : float, default 0.99
 
         Returns
         -------
         dict
-            Keys ``var_charge`` (the ``max(...)`` term), ``svar_charge``,
-            ``total`` and ``multiplier`` (``mc`` from the traffic light).
+            Keys ``var_charge``, ``svar_charge``, ``total`` (all 10-day) and
+            ``multiplier`` (``mc = ms`` from the traffic light).
         """
         if var_series is None:
             var_series = self._rolling_parametric_var(
@@ -149,91 +166,75 @@ class BaselCapitalEngine:
             )
         var_series = pd.Series(var_series).dropna()
 
-        var_t = float(var_series.iloc[-1])
-        avg_60 = float(var_series.iloc[-ROLLING_VAR_WINDOW:].mean())
-
-        # Supervisory multiplier from the traffic-light backtest.
+        # Supervisory multiplier from the traffic-light backtest of one-day VaR.
         pnl = portfolio.pnl()
         report = self._tl.backtest_report(var_series, pnl.loc[var_series.index], confidence)
         multiplier = float(report["capital_multiplier"])
 
+        scale = np.sqrt(BASEL_HORIZON)
+        var_t = float(var_series.iloc[-1]) * scale
+        avg_60 = float(var_series.iloc[-ROLLING_VAR_WINDOW:].mean()) * scale
         var_charge = float(max(var_t, multiplier * avg_60))
-        svar_charge = self._stressed_var(portfolio, confidence)
-        total = var_charge + svar_charge
+        svar = self._stressed_var(portfolio, confidence) * scale
+        svar_charge = float(max(svar, multiplier * svar))
         return {
             "var_charge": var_charge,
             "svar_charge": svar_charge,
-            "total": total,
+            "total": var_charge + svar_charge,
             "multiplier": multiplier,
         }
 
     # ------------------------------------------------------------ FRTB ES
-    def frtb_es_capital(self, portfolio: Portfolio, confidence: float = FRTB_CONFIDENCE) -> float:
-        """FRTB base Expected Shortfall (97.5%) capital, one-day horizon.
+    def _es_10d(self, portfolio: Portfolio, mask: np.ndarray, confidence: float) -> float:
+        """Normal 10-day ES of the positions selected by ``mask`` (others set to 0)."""
+        cov = portfolio.returns.cov().to_numpy()
+        w = np.where(mask, portfolio.weights, 0.0)
+        sigma = float(np.sqrt(max(w @ cov @ w, 0.0)) * np.sqrt(LH_BASE))
+        alpha = 1.0 - confidence
+        return float(stats.norm.pdf(stats.norm.ppf(confidence)) / alpha * sigma * portfolio.notional)
 
-        Parameters
-        ----------
-        portfolio : Portfolio
-        confidence : float, default ``FRTB_CONFIDENCE`` (0.975)
+    def frtb_es_capital(self, portfolio: Portfolio, confidence: float = FRTB_CONFIDENCE) -> float:
+        """FRTB base ES: normal 97.5% ES of the whole portfolio on the 10-day horizon.
 
         Returns
         -------
         float
-            One-day ES as a positive dollar loss.
+            10-day ES as a positive dollar loss.
         """
-        es = self._pes.compute(portfolio, confidence=confidence, distribution="normal")
-        return float(es.es)
+        return self._es_10d(portfolio, np.ones(len(portfolio.weights), dtype=bool), confidence)
 
     def _asset_lh(self, name: str) -> int:
         """Liquidity horizon (days) for a sample asset, defaulting to 20."""
         return ASSET_LIQUIDITY_HORIZON.get(name, 20)
 
     def frtb_capital(self, portfolio: Portfolio, confidence: float = FRTB_CONFIDENCE) -> dict:
-        """FRTB ES capital with liquidity-horizon scaling.
+        """FRTB ES with the liquidity-horizon cascade (BCBS MAR33.4).
 
-        Each asset receives a standalone (component) ES scaled to its own
-        liquidity horizon. The aggregate charge applies the FRTB square-root
-        liquidity-horizon adjustment::
-
-            total = sqrt( base_ES^2 + sum_k ES_k^2 * (LH_k / LH_base - 1) )
-
-        with ``LH_base = 10``. The per-asset ``ES_k`` are the Euler component
-        ES's that sum to the (correlated, diversified) base portfolio ES, so the
-        first term reproduces ``base_ES`` exactly. The second term adds the FRTB
-        liquidity-horizon surcharge ``ES_k^2 (LH_k/LH_base - 1) >= 0`` for every
-        asset whose horizon exceeds ``LH_base``. This is the equivalent,
-        diversification-preserving rearrangement of the FRTB scaling
-        ``sqrt(sum_k ES_k^2 LH_k/LH_base)`` that guarantees the LH-scaled charge
-        never falls below the base ES.
-
-        Parameters
-        ----------
-        portfolio : Portfolio
-        confidence : float, default ``FRTB_CONFIDENCE`` (0.975)
+        ``ES = sqrt( sum_j (ES_T(P, j) * sqrt((LH_j - LH_{j-1}) / T))^2 )`` with
+        ``T = 10``. Bucket j = 1 is the whole portfolio; bucket j > 1 shocks only the
+        positions whose liquidity horizon is at least ``LH_j``. When every position
+        has a 10-day horizon the charge equals the base 10-day ES.
 
         Returns
         -------
         dict
-            Keys ``es_components`` (per-asset Euler ES, ``np.ndarray``),
-            ``liquidity_horizons`` (per-asset LH, ``np.ndarray``) and
-            ``total_charge`` (LH-scaled aggregate ES).
+            Keys ``bucket_es`` (10-day ES of each bucket's subportfolio),
+            ``liquidity_horizons`` (per-asset LH) and ``total_charge``.
         """
-        # Euler-allocate the diversified portfolio ES to assets via component-VaR
-        # shares so the components sum to the base ES.
-        es_total = self.frtb_es_capital(portfolio, confidence=confidence)
-        comp_var = self._pv.component_var_analytical(
-            portfolio, confidence=confidence, cov_method=self._cov_method
-        )
-        shares = comp_var / comp_var.sum() if comp_var.sum() else np.full_like(comp_var, np.nan)
-        es_components = shares * es_total
-
         lhs = np.array([self._asset_lh(name) for name in portfolio.asset_names], dtype=float)
-        surcharge = np.sum(es_components**2 * (lhs / LH_BASE - 1.0))
-        total_charge = float(np.sqrt(es_total**2 + surcharge))
+        bucket_es, terms = [], []
+        prev = 0
+        for j, lh in enumerate(LH_BUCKETS):
+            mask = lhs >= lh if j > 0 else np.ones(len(lhs), dtype=bool)
+            es_j = self._es_10d(portfolio, mask, confidence) if mask.any() else 0.0
+            width = LH_BASE if j == 0 else lh - prev
+            bucket_es.append(es_j)
+            terms.append(es_j * np.sqrt(width / LH_BASE))
+            prev = lh
         return {
-            "es_components": es_components,
+            "bucket_es": np.array(bucket_es),
             "liquidity_horizons": lhs,
-            "total_charge": total_charge,
+            "total_charge": float(np.sqrt(np.sum(np.square(terms)))),
         }
 
     # ----------------------------------------------------- comparison table
@@ -257,19 +258,19 @@ class BaselCapitalEngine:
             [
                 {
                     "Framework": "Basel III (IMA VaR)",
-                    "Basis": "VaR 99% + SVaR",
+                    "Basis": "10-day VaR 99% + SVaR",
                     "Confidence": 0.99,
                     "Capital($)": basel3["total"],
                 },
                 {
                     "Framework": "Basel IV (FRTB ES, base)",
-                    "Basis": "ES 97.5% (1d)",
+                    "Basis": "ES 97.5% (10d)",
                     "Confidence": FRTB_CONFIDENCE,
                     "Capital($)": frtb_base,
                 },
                 {
                     "Framework": "Basel IV (FRTB ES, LH-scaled)",
-                    "Basis": "ES 97.5% + liquidity horizons",
+                    "Basis": "ES 97.5%, liquidity-horizon cascade",
                     "Confidence": FRTB_CONFIDENCE,
                     "Capital($)": frtb["total_charge"],
                 },
