@@ -59,7 +59,7 @@ print(VaREngine().comparison_table(portfolio, confidence=0.99))
 
 # Basel backtest with traffic-light classification
 result, frame = BacktestEngine().run(portfolio, "historical", confidence=0.99)
-print(result)   # -> Backtest[GREEN] 5/500 exceptions ...
+print(result)   # -> Backtest[GREEN] 0/250 exceptions (exp 2.5), Kupiec p=0.025
 ```
 
 ### Generate the research paper
@@ -71,7 +71,7 @@ python paper/generate_paper.py      # -> paper/market_risk_engine.pdf
 ### Run the tests
 
 ```bash
-pytest -q                            # 35 tests
+pytest -q                            # 41 tests
 ```
 
 ---
@@ -139,6 +139,12 @@ Two deterministic, synthetically-generated panels ship with the repo (see
 > data. Upload your own returns CSV in the dashboard's sidebar to analyse a
 > live portfolio.
 
+The backtest in the quickstart shows why that matters. On the bundled equity
+panel, 99% historical VaR has no exceptions in 250 days against 2.5 expected,
+and the Kupiec test rejects it at 5% (p = 0.025) for being too conservative.
+That is a property of this synthetic sample, not evidence about the method on
+real data.
+
 ---
 
 ## Reproducibility
@@ -161,7 +167,7 @@ pytest -q                          # runs the test suite
 
 ### Runtime
 
-The test suite (37 tests) finishes in about 9 seconds on the machine above, including any data downloads it triggers.
+The test suite (41 tests) finishes in a few seconds, including any data downloads it triggers.
 
 ### Citation
 
